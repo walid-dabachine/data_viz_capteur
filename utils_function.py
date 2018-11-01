@@ -47,7 +47,8 @@ def check_na_values(df, file_missing_values):
         if sum_nbr != 0:
             bool_na_values = True
         perc = round((sum_nbr/len(df))*100, 2)
-        print(col, ":", str(sum_nbr),"(",perc,"%)", file=file_missing_values)
+        line = str(col+":"+str(sum_nbr)+"("+str(perc)+"%)")
+        print(line, file=file_missing_values)
     print("\n", file=file_missing_values)
     return bool_na_values
 
@@ -166,9 +167,9 @@ def open_file(directory, file_name):
     if not os.path.exists(directory):
         os.makedirs(directory)
     if os.path.exists(path):
-        f = open(path, "r+")
+        f = open(path, "r+", encoding='utf-8')
     else:
-        f = open(path, "w+")
+        f = open(path, "w+", encoding='utf-8')
     return f
 
 def comparison_firefly_zaack(df_firefly, indic_firefly, df_zaack, indic_zaack ,start, end, moyenne=False):
