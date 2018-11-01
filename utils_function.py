@@ -11,6 +11,7 @@ import matplotlib.dates as mdates
 import plotly.graph_objs as go
 from plotly.offline import iplot, init_notebook_mode, plot
 from plotly import tools
+from pathlib import Path
 init_notebook_mode(connected=False)
 pd.set_option('display.max_rows', False)
 pd.set_option('display.max_columns', 100)
@@ -39,6 +40,18 @@ def load_and_clean_nancy(file_path, xlsx_sheet_number, time_column_name, file_mi
     stats_desc_df(df_nancy, file_path, file_missing_values)
     
     return df_nancy
+
+def load_clean_concatenate_nancy(parent_folder_path, xlsx_sheet_number, file_missing_values):
+    list_df = []
+    
+    for dirpath,_,filenames in os.walk(str(Path(parent_folder_path).resolve())):
+        for filename in filenames:
+            if (('~' not in filename) & ~(filename.startswith("._"))):
+                abspath = os.path.abspath(os.path.join(dirpath, filename))
+                df = load_and_clean_nancy(abspath, xlsx_sheet_number, "Date", file_missing_values)
+                list_df.append(df)
+            
+    return pd.concat(list_df, ignore_index=False).sort_index("index")
 
 def check_na_values(df, file_missing_values):
     bool_na_values = False
@@ -85,10 +98,6 @@ def load_and_clean_firefly(file_path, xlsx_sheet_number, time_column_name, empla
     df_firefly = df_firefly.rename(columns={df_firefly.columns[0]: time_column_name })
     #Imputation des valeurs manquantes
     stats_desc_df(df_firefly, file_path, file_missing_values)
-    """
-    if check_na_values(df_firefly) == True:
-        df_firefly = interpolate_dataframe(df_firefly, "linear", 0, limit=1, limit_area=None)
-    """
     #Ajout des jours travailles
     df_firefly = working_day_process(df_firefly, time_column_name, "jour_semaine", "jour_travaille", "heure", "mois", "semaine", [6,7])
     #Ajout de la colonne emplacement
@@ -102,14 +111,15 @@ def process_sensor_type_firefly(file_path):
     emplacement = df.columns[0].split('\n')[1].split("Emplacement: ")[1]
     return emplacement
 
-def load_clean_concatenate_firefly(parent_folder_path, key_name, xlsx_sheet_number, time_column_name, file_missing_values):
+def load_clean_concatenate_firefly(parent_folder_path, xlsx_sheet_number, file_missing_values):
     list_df = []
-    for filename in glob.iglob(parent_folder_path + '*', recursive=True):
-        
-        if ((key_name in filename) & ('~' not in filename)):
-            emplacement = process_sensor_type_firefly(filename)
-            df = load_and_clean_firefly(filename, xlsx_sheet_number, time_column_name, emplacement, file_missing_values)
-            list_df.append(df)
+    for dirpath,_,filenames in os.walk(str(Path(parent_folder_path).resolve())):
+        for filename in filenames:        
+            if (('~' not in filename) & ~(filename.startswith("._"))):
+                abspath = os.path.abspath(os.path.join(dirpath, filename))
+                emplacement = process_sensor_type_firefly(abspath)
+                df = load_and_clean_firefly(abspath, xlsx_sheet_number, "Date", emplacement, file_missing_values)
+                list_df.append(df)
             
     return pd.concat(list_df, ignore_index=False).sort_index("index")
 
@@ -121,15 +131,22 @@ def load_and_clean_ecosmart(file_path, xlsx_sheet_number, time_column_name, file
     df_ecosmart = df_ecosmart.drop(columns_drop_list, axis=1)
     df_ecosmart = df_ecosmart.rename(columns={df_ecosmart.columns[0]: time_column_name })
     stats_desc_df(df_ecosmart, file_path, file_missing_values)
-    """
-    if check_na_values(df_ecosmart) == True:
-        df_ecosmart = interpolate_dataframe(df_ecosmart, "linear", axis=0, limit=None, limit_area=None, limit_direction="both")
-    """
     df_ecosmart["cov(μg/m3)"] = (df_ecosmart["COV"]*56.106)/24.45
     df_ecosmart = working_day_process(df_ecosmart, time_column_name, "jour_semaine", "jour_travaille", "heure", "mois", "semaine", [6,7])
     df_ecosmart = df_ecosmart.set_index(time_column_name)
     
     return df_ecosmart
+
+def load_clean_concatenate_ecosmart(parent_folder_path, xlsx_sheet_number, file_missing_values):
+    list_df = []
+    for dirpath,_,filenames in os.walk(str(Path(parent_folder_path).resolve())):
+        for filename in filenames:
+            if (('~' not in filename) & ~(filename.startswith("._"))):
+                abspath = os.path.abspath(os.path.join(dirpath, filename))
+                df = load_and_clean_ecosmart(abspath, xlsx_sheet_number, "Date", file_missing_values)
+                list_df.append(df)
+            
+    return pd.concat(list_df, ignore_index=False).sort_index("index")
 
 def load_clean_zaack(file_path, time_column_name, emplacement, file_missing_values):
     df_zaack = pd.read_csv(file_path, sep=";", header=0, infer_datetime_format=True, parse_dates=True).drop(["sensor_id"], axis=1)
@@ -146,24 +163,26 @@ def load_clean_zaack(file_path, time_column_name, emplacement, file_missing_valu
     df_zaack[time_column_name]=pd.to_datetime(df_zaack[time_column_name], format="%d/%m/%Y %H:%M:%S", exact=False)
     df_zaack = working_day_process(df_zaack, time_column_name, "jour_semaine", "jour_travaille", "heure", "mois", "semaine", [6,7])
     df_zaack["seconde"] = df_zaack[time_column_name].dt.second
-    df_zaack["emplacement"] = emplacement
     df_zaack = df_zaack.set_index(time_column_name)
+    df_zaack = df_zaack.groupby(pd.Grouper(freq='1Min')).aggregate(np.mean)
+    df_zaack["emplacement"] = emplacement
     
     return df_zaack
 
-def load_clean_concatenate_zaack(parent_folder_path, key_name, file_missing_values):
+def load_clean_concatenate_zaack(parent_folder_path, file_missing_values):
     list_df = []
-    for filename in glob.iglob(parent_folder_path + '*', recursive=True):
-        
-        if ((key_name in filename) & ('~' not in filename)):
-            emplacement = filename.split('_')[-1].split('.')[0]
-            df = load_clean_zaack(filename, "Date", emplacement, file_missing_values)
-            list_df.append(df)
+    for dirpath,_,filenames in os.walk(str(Path(parent_folder_path).resolve())):
+        for filename in filenames:
+            if (('~' not in filename) & ~(filename.startswith("._"))):
+                abspath = os.path.abspath(os.path.join(dirpath, filename))
+                emplacement = filename.split('_')[-1].split('.')[0]
+                df = load_clean_zaack(abspath, "Date", emplacement, file_missing_values)
+                list_df.append(df)
             
     return pd.concat(list_df, ignore_index=False).sort_index("index")
 
 def open_file(directory, file_name):
-    path = directory+"/"+file_name
+    path = os.path.abspath(os.path.join(Path(directory).resolve(), file_name))
     if not os.path.exists(directory):
         os.makedirs(directory)
     if os.path.exists(path):
@@ -171,6 +190,19 @@ def open_file(directory, file_name):
     else:
         f = open(path, "w+", encoding='utf-8')
     return f
+
+def load_all_dataframes(out_directory, out_filename, nancy, zaack, firefly, ecosmart):
+    #Chargement du fichier de sortie des statistiques descriptives
+    file_missing_values = open_file(out_directory, out_filename)
+    #Dataframes des capteurs
+    df_nancy = load_clean_concatenate_nancy(nancy, 1, file_missing_values)
+    df_zaack = load_clean_concatenate_zaack(zaack, file_missing_values)
+    df_firefly = load_clean_concatenate_firefly(firefly, 1, file_missing_values)
+    df_ecosmart = load_clean_concatenate_ecosmart(ecosmart, 0, file_missing_values)
+    #Fermeture du fichier de sortie des statistiques descriptives
+    file_missing_values.close()
+    
+    return df_nancy, df_zaack, df_firefly, df_ecosmart
 
 def comparison_firefly_zaack(df_firefly, indic_firefly, df_zaack, indic_zaack ,start, end, moyenne=False):
     df_f = df_firefly.loc[(df_firefly.index <= end) & (df_firefly.index >= start)]
@@ -239,24 +271,34 @@ def resolve_dataframes_for_printing(list_tuples, list_dates, moyenne=False, repl
     new_tup_list = []
     for tup in list_tuples:
         tmp = tup[0]
+        list_dfs = []
+        df_tmp = None
+        #Gestion des dates
         for idx, date in enumerate(list_dates):
             #Start
             if idx%2 == 0:
-                tmp = tmp.loc[(tmp.index >= date)]
+                df_tmp = tmp.loc[(tmp.index >= date)]
             #End
             else:
-                tmp = tmp.loc[(tmp.index <= date)]
+                df_tmp = df_tmp.loc[(df_tmp.index <= date)]
+                list_dfs.append(df_tmp)
+                df_tmp = None
+        if ((len(list_dfs) > 0) | (df_tmp is not None)):
+            if (df_tmp is not None):
+                list_dfs.append(df_tmp)
+            tmp = pd.concat(list_dfs, ignore_index=False).sort_index("index")
+            
         tmp = tmp[tup[1]]
         if replace_zero == True:
             dict_replace = (dict(((s,{0: np.nan}) for s in tup[1])))
             tmp = tmp.replace(dict_replace)
 
-        tmp = tmp.groupby(pd.Grouper(freq='10Min')).aggregate(np.mean)
-
+        tmp = tmp.groupby(pd.Grouper(freq='5Min')).aggregate(np.mean)
+        #print(tmp)
         window = tup[3]
         if window != None:
 	        for col in tup[1]:
-	        	tmp[col] = tmp.rolling(window=window).mean()[col]
+	        	tmp[col] = tmp.rolling(window=window, center=True).mean()[col]
 
         if moyenne == True:
             tmp = tmp.groupby([tmp.index.hour, tmp.index.minute]).mean()
@@ -283,7 +325,6 @@ def afficher_graphes(liste_tuples,
     tuples_to_print = resolve_dataframes_for_printing(liste_tuples, liste_dates, moyenne=moyenne, replace_zero=remplacer_zero)
     list_df, columns, names = zip(*tuples_to_print)
     courbes=[]
-    
     max_columns=0
     for j in columns:
         if len(j)> max_columns:
@@ -311,7 +352,8 @@ def afficher_graphes(liste_tuples,
             fig['layout']['xaxis'+str(position_axe)].update(title='Temps')
             fig['layout']['yaxis'+str(position_axe)].update(title=column)
             if moyenne == True:
-                fig['layout']['xaxis'+str(position_axe)].update(tickangle=52)
+                fig['layout']['xaxis'+str(position_axe)].update(tickangle=30)
+                fig['layout']['xaxis'+str(position_axe)].update(dtick=24)
     
     fig["layout"].update(title=title)
     fig['layout'].update(height=800, width=1000)
