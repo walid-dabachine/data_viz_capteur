@@ -12,7 +12,7 @@ import plotly.graph_objs as go
 from plotly.offline import iplot, init_notebook_mode, plot
 from plotly import tools
 from pathlib import Path
-init_notebook_mode(connected=False)
+init_notebook_mode(connected=True)
 pd.set_option('display.max_rows', False)
 pd.set_option('display.max_columns', 100)
 
@@ -36,6 +36,7 @@ def load_and_clean_nancy(file_path, xlsx_sheet_number, time_column_name, file_mi
     types_dict = dict(zip(columns,types_list))
     df_nancy = df_nancy.astype(types_dict)
     df_nancy[time_column_name]=pd.to_datetime(df_nancy[time_column_name], format="%Y-%m-%d %H:%M")
+    df_nancy = working_day_process(df_nancy, time_column_name, "jour_semaine", "jour_travaille", "heure", "mois", "semaine", [6,7])
     df_nancy = df_nancy.set_index(time_column_name)
     stats_desc_df(df_nancy, file_path, file_missing_values)
     
@@ -266,9 +267,21 @@ def print_comparison_capteur(df_merge, indicateur_1, indicateur_2, title, sub_ti
     #ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%a-%d-%m'))
     # set font and rotation for date tick labels
     plt.gcf().autofmt_xdate()
+    
+def time_delta_calculation(td):
+    return (td.seconds//60)%60
+def get_index_step(df):
+    return (df.index[1] - df.index[0])
 
-def resolve_dataframes_for_printing(list_tuples, list_dates, moyenne=False, replace_zero=False):
+def resolve_dataframes_for_printing(list_tuples, list_dates, jour_travaille=None, moyenne=False, replace_zero=False):
     new_tup_list = []
+    max_step = 5
+    
+    for tup in list_tuples:
+        step = time_delta_calculation(get_index_step(tup[0]))
+        if step > max_step:
+            max_step = step
+            
     for tup in list_tuples:
         tmp = tup[0]
         list_dfs = []
@@ -287,13 +300,15 @@ def resolve_dataframes_for_printing(list_tuples, list_dates, moyenne=False, repl
             if (df_tmp is not None):
                 list_dfs.append(df_tmp)
             tmp = pd.concat(list_dfs, ignore_index=False).sort_index("index")
+        if jour_travaille is not None:
+            tmp = tmp[tmp["jour_travaille"]==jour_travaille]
             
         tmp = tmp[tup[1]]
         if replace_zero == True:
             dict_replace = (dict(((s,{0: np.nan}) for s in tup[1])))
             tmp = tmp.replace(dict_replace)
 
-        tmp = tmp.groupby(pd.Grouper(freq='5Min')).aggregate(np.mean)
+        tmp = tmp.groupby(pd.Grouper(freq=str(max_step)+'Min')).aggregate(np.mean)
         #print(tmp)
         window = tup[3]
         if window != None:
@@ -312,17 +327,19 @@ def resolve_dataframes_for_printing(list_tuples, list_dates, moyenne=False, repl
             tmp.index = tmp["Date"]
             tmp = tmp.drop(["hour", "minute", "month", "year", "day", "Date"], axis=1)
         new_tup_list.append((tmp, tup[1], tup[2]))
-    return new_tup_list
+    return new_tup_list, max_step
 
 def afficher_graphes(liste_tuples, 
                      liste_dates,
                      title,
+                     jour_travaille=None,
                      moyenne=False, 
                      remplacer_zero=False, 
                      afficher_capteur_verticalement=True,
                      mode="lines"):
 
-    tuples_to_print = resolve_dataframes_for_printing(liste_tuples, liste_dates, moyenne=moyenne, replace_zero=remplacer_zero)
+    tuples_to_print, max_step = resolve_dataframes_for_printing(liste_tuples, liste_dates, jour_travaille=jour_travaille,
+                                                      moyenne=moyenne, replace_zero=remplacer_zero)
     list_df, columns, names = zip(*tuples_to_print)
     courbes=[]
     max_columns=0
@@ -353,7 +370,7 @@ def afficher_graphes(liste_tuples,
             fig['layout']['yaxis'+str(position_axe)].update(title=column)
             if moyenne == True:
                 fig['layout']['xaxis'+str(position_axe)].update(tickangle=30)
-                fig['layout']['xaxis'+str(position_axe)].update(dtick=24)
+                fig['layout']['xaxis'+str(position_axe)].update(dtick=(120/max_step))
     
     fig["layout"].update(title=title)
     fig['layout'].update(height=800, width=1000)
